@@ -5,7 +5,7 @@ How to install VirtuCameraMaya:
 
 VirtuCameraMaya is provided as a Python Maya® Plug-in. The installation is pretty straight forward: 
 
-1. Unzip the archive, you can download it from the releases page.
+1. Unzip the archive, you can download it from https://github.com/shycats/VirtuCameraMaya/releases
 
 2. Copy the contents of the archive: a folder named virtuCameraMaya and a file named virtuCameraMayaPlugin.py
 
