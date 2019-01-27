@@ -11,11 +11,11 @@ VirtuCameraMaya is provided as a Python Maya® Plug-in. The installation is pret
 
 3. Paste them in one of the following directories, depending on your operating system. If the plug-ins folder doesn’t exist, create it:
 
-Windows: \Users\<username>\Documents\maya\<version>\plug-ins\
+Windows: \Users\\\<username>\Documents\maya\\\<version>\plug-ins\
 
-MacOS: /Users/<username>/Library/Preferences/Autodesk/maya/<version>/plug-ins/
+MacOS: /Users/\<username>/Library/Preferences/Autodesk/maya/\<version>/plug-ins/
 
-Linux: $HOME/maya/<version>/plug-ins/
+Linux: $HOME/maya/\<version>/plug-ins/
 
 Note for MacOS users: If you can’t find the Library folder, it’s probably hidden. You can use Cmd+Shift+. to show hidden files.
 
