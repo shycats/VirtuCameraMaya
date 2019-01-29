@@ -1,1 +1,1 @@
-from virtuCameraMaya import VirtuCameraMaya
+from .virtuCameraMaya import VirtuCameraMaya

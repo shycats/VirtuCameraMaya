@@ -35,22 +35,13 @@
 #   Source code and license should be included along with this program.
 #   License: LGPL
 #
-# * python-qrcode 6.1 (https://github.com/lincolnloop/python-qrcode):
+# * python-qrcode (https://github.com/lincolnloop/python-qrcode):
 #   This program relies on python-qrcode for QR code generation.
 #   Source code and license should be included along with this program.
 #   License: MIT
 #------------------------------------------------------------------------------
 
 import thread, ctypes, socket, struct, subprocess, time, timeit, os, sys
-
-# Add virtuCameraMaya to sys.path, to correctly import sub-modules
-pluginPath = os.path.dirname(os.path.abspath(__file__))
-if pluginPath not in sys.path:
-    sys.path.append(pluginPath)
-
-import python_zeroconf.zeroconf as zeroconf
-import qrcode
-
 import maya.api.OpenMaya as api
 import maya.api.OpenMayaUI as apiUI
 from maya import OpenMayaUI as v1apiUI
@@ -67,6 +58,15 @@ try:
     from shiboken2 import wrapInstance
 except ImportError:
     from shiboken import wrapInstance
+
+# Add vendor to sys.path, to correctly import third party modules
+parent_dir = os.path.abspath(os.path.dirname(__file__))
+vendor_dir = os.path.join(parent_dir, 'vendor')
+if vendor_dir not in sys.path:
+    sys.path.append(vendor_dir)
+
+import zeroconf
+import qrcode
 
 
 class QtImageFactory(qrcode.image.base.BaseImage):
@@ -95,7 +95,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,0,0)
+    _SERVER_VERSION = (1,0,1)
     _SERVER_PLATFORM = 'Maya'   # Please, don't exceed 10 characters (for readability purposes)
     _ALPHA_BITRATE_RATIO = 0.2  # Factor of total bitrate used for Alpha
     _STREAM_WIDTH = 640         # Must be an even integer
@@ -295,7 +295,7 @@ class VirtuCameraMaya(object):
             self.ffmpeg_bin = ffmpeg_bin
         else:
             base_dir_path = os.path.dirname(os.path.abspath(__file__))
-            ffmpeg_dir_path = os.path.join(base_dir_path, 'ffmpeg', 'bin')
+            ffmpeg_dir_path = os.path.join(base_dir_path, 'vendor', 'ffmpeg', 'bin')
             if os.name == 'nt':
                 ffmpeg_bin = os.path.join(ffmpeg_dir_path, 'ffmpeg.exe')
             else:

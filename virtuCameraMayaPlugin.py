@@ -35,7 +35,7 @@
 #   Source code and license should be included along with this program.
 #   License: LGPL
 #
-# * python-qrcode 6.1 (https://github.com/lincolnloop/python-qrcode):
+# * python-qrcode (https://github.com/lincolnloop/python-qrcode):
 #   This program relies on python-qrcode for QR code generation.
 #   Source code and license should be included along with this program.
 #   License: MIT
@@ -64,7 +64,7 @@ class VirtuCameraMayaPlugin( OpenMaya.MPxCommand ):
     def doIt(self, args):
         ''' Command execution. '''
         import virtuCameraMaya
-        virtuCameraMaya = reload(virtuCameraMaya)
+        virtuCameraMaya = reload(virtuCameraMaya.virtuCameraMaya)
         virtuCameraMaya.VirtuCameraMaya()
     
 ##########################################################
