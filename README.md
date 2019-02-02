@@ -1,5 +1,5 @@
 # VirtuCameraMaya
-Python Maya plug-in to make camera motion capture with VirtuCamera iOS App
+Python Maya® plug-in to make camera motion capture with VirtuCamera iOS App
 
 How to install VirtuCameraMaya:
 
@@ -25,3 +25,6 @@ Note for MacOS users: If you can’t find the Library folder, it’s probably hi
 Done! you should have a new shelf from VirtuCamera ready to be used.
 
 If you prefer it, you can add the plug-in folder path to the MAYA_PLUG_IN_PATH environment variable.
+
+
+If you want to use the plug-in from the source code, you need to add your own ffmpeg binary, by pasting it in /virtuCameraMaya/vendor/ffmpeg/bin/
