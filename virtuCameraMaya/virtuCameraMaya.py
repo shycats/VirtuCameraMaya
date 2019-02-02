@@ -95,7 +95,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,0,1)
+    _SERVER_VERSION = (1,0,2)
     _SERVER_PLATFORM = 'Maya'   # Please, don't exceed 10 characters (for readability purposes)
     _ALPHA_BITRATE_RATIO = 0.2  # Factor of total bitrate used for Alpha
     _STREAM_WIDTH = 640         # Must be an even integer
@@ -1038,7 +1038,7 @@ class VirtuCameraMaya(object):
             self._tcp_srv_port = self._tcp_srv_socket.getsockname()[1]
             self._tcp_srv_socket.listen(1)
             thread.start_new_thread(self._handle_tcp_socket, ())
-            self._server_register()
+            cmds.evalDeferred(self._server_register) # looks more responsive this way
             self._serving_ui(self._qr_string())
 
     def _stop(self):
@@ -1050,5 +1050,5 @@ class VirtuCameraMaya(object):
                 if not self.is_connected:
                     self._stop_tcp_accept()
                 self._tcp_srv_socket.close()
-                self._maya_exec(self._server_unregister) # For some reason it needs to be called with maya_exec to avoid crashing
+                cmds.evalDeferred(self._server_unregister) # For some reason it needs to be called this way to avoid crashing
                 self._stopped_ui()
