@@ -185,7 +185,7 @@ class VirtuCameraMaya(object):
 
     def _close_ui(self, caller=None):
         self._is_closing = True
-        self._stop()
+        thread.start_new_thread(self._stop, ()) # workaround to avoid maya crash
 
     def _start_ui(self):
         self._window_width = self._STREAM_WIDTH + 2
@@ -477,6 +477,8 @@ class VirtuCameraMaya(object):
         if err and self._proc.returncode !=0: raise subprocess.CalledProcessError(self._proc.returncode, self._ffmpeg_cmd)
         
     def _capture_viewport_img(self):
+        if self._is_closing:
+            return
         self._view.readColorBuffer(self._img)
         img_ptr = self._img.pixels().__long__()
         img_bytes = ctypes.string_at(img_ptr, self._img_len)
@@ -1038,7 +1040,7 @@ class VirtuCameraMaya(object):
             self._tcp_srv_port = self._tcp_srv_socket.getsockname()[1]
             self._tcp_srv_socket.listen(1)
             thread.start_new_thread(self._handle_tcp_socket, ())
-            cmds.evalDeferred(self._server_register) # looks more responsive this way
+            self._server_register()
             self._serving_ui(self._qr_string())
 
     def _stop(self):
@@ -1050,5 +1052,5 @@ class VirtuCameraMaya(object):
                 if not self.is_connected:
                     self._stop_tcp_accept()
                 self._tcp_srv_socket.close()
-                cmds.evalDeferred(self._server_unregister) # For some reason it needs to be called this way to avoid crashing
+                self._maya_exec(self._server_unregister)
                 self._stopped_ui()
