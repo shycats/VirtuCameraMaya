@@ -95,7 +95,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,0,2)
+    _SERVER_VERSION = (1,0,3)
     _SERVER_PLATFORM = 'Maya'   # Please, don't exceed 10 characters (for readability purposes)
     _ALPHA_BITRATE_RATIO = 0.2  # Factor of total bitrate used for Alpha
     _STREAM_WIDTH = 640         # Must be an even integer
@@ -181,7 +181,7 @@ class VirtuCameraMaya(object):
         self._serve(port)
 
     def _stop_serving(self, caller=None):
-        self._stop()
+        thread.start_new_thread(self._stop, ()) # workaround to avoid maya crash
 
     def _close_ui(self, caller=None):
         self._is_closing = True
@@ -422,7 +422,7 @@ class VirtuCameraMaya(object):
         thread.start_new_thread(self._autosend_loop, (autosend_interval,))
 
     def _start_streaming(self):
-        if self.is_streaming:
+        if self.is_streaming or not self.is_serving:
             return
 
         if not self._maya_exec(cmds.objExists, self.current_camera):
@@ -470,8 +470,8 @@ class VirtuCameraMaya(object):
             self._fout.close()
         self._proc.wait()
         self._maya_exec(self._stop_streaming_ui)
-        # Workaround to wait for Maya to start managing views again before seting active view
-        time.sleep(0.1)
+        # Workaround to wait for Maya to start managing views again before setting active view
+        time.sleep(0.2)
         self._maya_exec(self._activate_orig_active_view)
         self.is_autosend = False
         if err and self._proc.returncode !=0: raise subprocess.CalledProcessError(self._proc.returncode, self._ffmpeg_cmd)
@@ -549,7 +549,11 @@ class VirtuCameraMaya(object):
         self._tcp_send_with_len(cmd, data+self._SERVER_PLATFORM+'_'+self._get_server_name())
 
     def _get_scene_cameras(self):
-        return cmds.listCameras(perspective=True)
+        cameras = cmds.listCameras(perspective=True)
+        # replace shapes with transforms (maya returns shapes when other objects are parented under a camera)
+        cam_shapes = cmds.ls(cameras, shapes=True)
+        cameras = list(set(cmds.ls(cameras, type="transform") + cmds.ls(cmds.listRelatives(cam_shapes, parent=True, fullPath=True), type="transform")))
+        return cameras
 
     def _send_scene_cameras(self, cmd):
         self._scene_cameras = self._maya_exec(self._get_scene_cameras)
@@ -983,13 +987,15 @@ class VirtuCameraMaya(object):
 
     def _handle_server_announcement(self):
         self._is_announcing = True
+        self._server_register()
         while self.is_serving and not self.is_connected:
             time.sleep(self._ANNOUNCEMENT_INTERVAL)
             with self._zconf_lock:
                 if self.is_serving and not self.is_connected:
                     self._zconf.re_register_all_services()
         self._is_announcing = False
-
+        self._server_unregister()
+        
     def _qr_string(self):
         ip_addresses = self._get_net_addresses()[:10] # limit to 10 ip addresses
         result = str(self._tcp_srv_port)
@@ -1012,7 +1018,7 @@ class VirtuCameraMaya(object):
                         cmd = self._tcp_clt_socket.recv(1)
                     except:
                         break
-                    if cmd:
+                    if self.is_serving and cmd:
                         self._proccess_command(cmd)
                     else:
                         break
@@ -1040,7 +1046,6 @@ class VirtuCameraMaya(object):
             self._tcp_srv_port = self._tcp_srv_socket.getsockname()[1]
             self._tcp_srv_socket.listen(1)
             thread.start_new_thread(self._handle_tcp_socket, ())
-            self._server_register()
             self._serving_ui(self._qr_string())
 
     def _stop(self):
@@ -1052,5 +1057,4 @@ class VirtuCameraMaya(object):
                 if not self.is_connected:
                     self._stop_tcp_accept()
                 self._tcp_srv_socket.close()
-                self._maya_exec(self._server_unregister)
-                self._stopped_ui()
+                self._maya_exec(self._stopped_ui)
