@@ -39,6 +39,11 @@
 #   This program relies on python-qrcode for QR code generation.
 #   Source code and license should be included along with this program.
 #   License: MIT
+#
+# * ifaddr (https://github.com/pydron/ifaddr):
+#   This program relies on ifaddr to obtain IP addresses.
+#   Source code and license should be included along with this program.
+#   License: MIT
 #------------------------------------------------------------------------------
 
 import thread, ctypes, socket, struct, subprocess, time, timeit, os, sys
@@ -65,8 +70,10 @@ vendor_dir = os.path.join(parent_dir, 'vendor')
 if vendor_dir not in sys.path:
     sys.path.append(vendor_dir)
 
+# Import third party modules
 import zeroconf
 import qrcode
+import ifaddr
 
 
 class QtImageFactory(qrcode.image.base.BaseImage):
@@ -95,7 +102,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,0,3)
+    _SERVER_VERSION = (1,0,4)
     _SERVER_PLATFORM = 'Maya'   # Please, don't exceed 10 characters (for readability purposes)
     _ALPHA_BITRATE_RATIO = 0.2  # Factor of total bitrate used for Alpha
     _STREAM_WIDTH = 640         # Must be an even integer
@@ -961,16 +968,10 @@ class VirtuCameraMaya(object):
         compname += ' - %s'%self._SERVER_PLATFORM
         return compname
 
-    def _get_net_addresses(self):
-        hostname = socket.gethostname()
-        ip_addresses = socket.gethostbyname_ex(hostname)[-1]
-        return ip_addresses
-
-
     def _server_register(self):
         with self._zconf_lock:
             hostname = socket.gethostname()
-            ips = self._get_net_addresses()
+            ips = socket.gethostbyname_ex(hostname)[-1]
             if ips:
                 compname = self._get_server_name().decode('utf-8')
                 hostaddr = ips[0]
@@ -996,6 +997,16 @@ class VirtuCameraMaya(object):
         self._is_announcing = False
         self._server_unregister()
         
+    def _get_net_addresses(self):
+        adapters = ifaddr.get_adapters()
+        ip_addresses = []
+        for adapter in adapters:
+            for ip in adapter.ips:
+                ip_address = ip.ip
+                if isinstance(ip_address, basestring) and ip_address != '127.0.0.1' and not ip_address.startswith("169.254."):
+                    ip_addresses.append(ip_address)
+        return ip_addresses
+
     def _qr_string(self):
         ip_addresses = self._get_net_addresses()[:10] # limit to 10 ip addresses
         result = str(self._tcp_srv_port)
