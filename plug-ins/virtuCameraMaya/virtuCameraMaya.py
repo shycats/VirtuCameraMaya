@@ -197,7 +197,8 @@ class VirtuCameraMaya(object):
     def _start_ui(self):
         # Remove size preference to force the window calculate its size
         windowName = 'VirtuCameraMayaWindow'
-        cmds.windowPref(windowName, remove=True)
+        if cmds.windowPref(windowName, exists=True):
+            cmds.windowPref(windowName, remove=True)
 
         self._window_width = self._STREAM_WIDTH + 2
         self._window_height = self._STREAM_HEIGHT + 50
@@ -627,7 +628,8 @@ class VirtuCameraMaya(object):
         self._tcp_send_with_len(cmd, script_labels_str)
 
     def _after_save_callback(self):
-        self._send_script_info(self._CMD_ASK_SCRIPT_INFO)
+        # do it in new thread to avoid maya crash
+        thread.start_new_thread(self._send_script_info, (self._CMD_ASK_SCRIPT_INFO,))
 
     def _send_server_info(self, cmd):
         data = struct.pack('<3H', *self._SERVER_VERSION)

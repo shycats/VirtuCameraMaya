@@ -303,13 +303,12 @@ class VirtuCameraMayaConfig(object):
                 cmds.evalDeferred(self._update_ui_from_cache)
                 cmds.evalDeferred(self._update_enable_state_ui)
                 
-
     def _start_ui(self):
         # Remove size preference to force the window calculate its size
         windowName = 'VirtuCameraMayaConfigWindow'
-        cmds.windowPref(windowName, remove=True)
-
-        self._ui_window = cmds.window('VirtuCameraMayaConfigWindow', width=self._WINDOW_SIZE[0], height=self._WINDOW_SIZE[1], menuBarVisible=False, titleBar=True, visible=True, sizeable=True, closeCommand=self._close_ui, title='VirtuCamera Configuration')
+        if cmds.windowPref(windowName, exists=True):
+            cmds.windowPref(windowName, remove=True)
+        self._ui_window = cmds.window(windowName, width=self._WINDOW_SIZE[0], height=self._WINDOW_SIZE[1], menuBarVisible=False, titleBar=True, visible=True, sizeable=True, closeCommand=self._close_ui, title='VirtuCamera Configuration')
         form_lay = cmds.formLayout(width=505, height=300)
         col_lay = cmds.columnLayout(adjustableColumn=True, columnAttach=('both', 0), width=465)
         cmds.text(label='Custom Scripts', align='left')
