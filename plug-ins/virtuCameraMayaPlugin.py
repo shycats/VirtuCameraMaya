@@ -20,27 +20,6 @@
 #OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #SOFTWARE.
 
-#------------------------------------------------------------------------------
-# Acknowledgements:
-#------------------------------------------------------------------------------
-# * FFmpeg (https://www.ffmpeg.org):
-#   This program optionally relies on FFmpeg's command line tool to do video 
-#   streaming (although it can work without this feature).
-#   License should be included along with this program. You can download 
-#   FFmpeg's source code and build configuration from virtucamera.com
-#   License: GPL
-#
-# * python-zeroconf 0.16 (https://github.com/jstasiak/python-zeroconf/tree/0.16):
-#   This program relies on python-zeroconf for service announcement. 
-#   Source code and license should be included along with this program.
-#   License: LGPL
-#
-# * python-qrcode (https://github.com/lincolnloop/python-qrcode):
-#   This program relies on python-qrcode for QR code generation.
-#   Source code and license should be included along with this program.
-#   License: MIT
-#------------------------------------------------------------------------------
-
 import sys, os
 import maya.api.OpenMaya as OpenMaya
 import maya.cmds as cmds

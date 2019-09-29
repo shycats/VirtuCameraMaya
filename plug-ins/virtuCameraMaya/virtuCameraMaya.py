@@ -47,10 +47,12 @@
 #------------------------------------------------------------------------------
 
 import thread, ctypes, socket, struct, subprocess, time, timeit, os, sys
+import xml.etree.ElementTree as et
 import maya.api.OpenMaya as api
 import maya.api.OpenMayaUI as apiUI
 from maya import OpenMayaUI as v1apiUI
 import maya.cmds as cmds
+import maya.mel as mel
 import maya.utils as utils
 
 try:
@@ -74,7 +76,6 @@ if vendor_dir not in sys.path:
 import zeroconf
 import qrcode
 import ifaddr
-
 
 class QtImageFactory(qrcode.image.base.BaseImage):
     def __init__(self, border, width, box_size):
@@ -102,15 +103,18 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,0,4)
-    _SERVER_PLATFORM = 'Maya'   # Please, don't exceed 10 characters (for readability purposes)
-    _ALPHA_BITRATE_RATIO = 0.2  # Factor of total bitrate used for Alpha
-    _STREAM_WIDTH = 640         # Must be an even integer
-    _STREAM_HEIGHT = 360        # Must be an even integer
-    _DEFAULT_PORT = 23354       # TCP port used by default
-    _ANNOUNCEMENT_INTERVAL = 10 # re-announce every 10 seconds
+    _SERVER_VERSION = (1,1,0)
+    _SERVER_PLATFORM = 'Maya'          # Please, don't exceed 10 characters (for readability purposes)
+    _CONFIG_FILE = 'configuration.xml' # Configuration file name
+    _ALPHA_BITRATE_RATIO = 0.2         # Factor of total bitrate used for Alpha
+    _STREAM_WIDTH = 640                # Must be an even integer
+    _STREAM_HEIGHT = 360               # Must be an even integer
+    _DEFAULT_PORT = 23354              # TCP port used by default
+    _ANNOUNCEMENT_INTERVAL = 10        # re-announce every 10 seconds
     _ZEROCONF_TYPE = '_virtucamera._tcp.local.'
-    _CAMERA_KEY_ATTRS = ['.tx','.ty','.tz','.rx','.ry','.rz','.focalLength']
+    _CAMERA_KEY_ATTRS = ('.focalLength','.tx','.ty','.tz','.rx','.ry','.rz')
+    _LANG_PY = 1
+    _LANG_MEL = 2
 
     def _command(tag):
         # UInt8 commands
@@ -125,6 +129,7 @@ class VirtuCameraMaya(object):
     _CMD_ASK_VIEWPORT_IMG           = _command(4)
     _CMD_ASK_PLAY_FPS               = _command(5)
     _CMD_ASK_CAMERA_HAS_KEYS        = _command(6)
+    _CMD_ASK_SCRIPT_INFO            = _command(7)
     # SET commands acknowledge data read and sets parameters on the server.
     _CMD_SET_PLAYBACK_RANGE         = _command(50)
     _CMD_SET_CURRENT_TIME           = _command(51)
@@ -145,10 +150,12 @@ class VirtuCameraMaya(object):
     _CMD_DO_SWITCH_PLAYBACK         = _command(154)
     _CMD_DO_REMOVE_CAMERA_KEYS      = _command(155)
     _CMD_DO_CREATE_NEW_CAMERA       = _command(156)
+    _CMD_DO_EXECUTE_SCRIPT          = _command(157)
     # ERR commands are sent to the client if something went wrong
     _CMD_ERR_MISSING_CAMERA         = _command(200)
     _CMD_ERR_NOT_STREAMING          = _command(201)
     _CMD_ERR_FFMPEG                 = _command(202)
+    _CMD_ERR_EXECUTE_SCRIPT         = _command(203)
 
     _MAYA_FPS_PRESETS = {
         'game': 15.0, 
@@ -164,23 +171,10 @@ class VirtuCameraMaya(object):
         'hour': 1.0/3600.0
     }
 
-    # https://github.com/abstractfactory/maya-capture ##################
-    def _in_standalone(self):
-        return not hasattr(cmds, "about") or cmds.about(batch=True)
-
-    def _get_screen_size(self):
-        """Return available screen size without space occupied by taskbar"""
-        if self._in_standalone():
-            return [0, 0]
-
-        rect = QtWidgets.QDesktopWidget().screenGeometry(-1)
-        return [rect.width(), rect.height()]
-    ####################################################################
-
     def _update_ui_layout(self):
         cmds.formLayout(self._ui_layout, edit=True,
-            attachForm=[(self._ui_tx_port, 'top', 10), (self._ui_tx_port, 'left', 5), (self._ui_int_port, 'top', 6), (self._ui_bt_serve, 'top', 5), (self._ui_tx_help, 'top', 10), (self._ui_tx_help, 'right', 5), (self._ui_view, 'left', 0)],
-            attachControl=[(self._ui_int_port, 'left', 1, self._ui_tx_port), (self._ui_bt_serve, 'left', 5, self._ui_int_port), (self._ui_tx_help, 'left', 5, self._ui_bt_serve), (self._ui_view, 'top', 5, self._ui_bt_serve)],
+            attachForm=[(self._ui_tx_port, 'top', 10), (self._ui_tx_port, 'left', 5), (self._ui_int_port, 'top', 6), (self._ui_bt_serve, 'top', 5), (self._ui_tx_help, 'top', 10), (self._ui_bt_conf, 'top', 5), (self._ui_bt_conf, 'right', 5), (self._ui_view, 'left', 0)],
+            attachControl=[(self._ui_int_port, 'left', 1, self._ui_tx_port), (self._ui_bt_serve, 'left', 5, self._ui_int_port), (self._ui_tx_help, 'left', 5, self._ui_bt_serve), (self._ui_tx_help, 'right', 5, self._ui_bt_conf), (self._ui_view, 'top', 5, self._ui_bt_serve)],
             attachNone=[(self._ui_int_port, 'bottom'), (self._ui_int_port, 'right'), (self._ui_bt_serve, 'bottom'), (self._ui_bt_serve, 'right'), (self._ui_tx_help, 'bottom'), (self._ui_view, 'right'), (self._ui_view, 'bottom')])
 
     def _start_serving(self, caller=None):
@@ -194,13 +188,20 @@ class VirtuCameraMaya(object):
         self._is_closing = True
         thread.start_new_thread(self._stop, ()) # workaround to avoid maya crash
 
+    def _open_config_window(self, caller=None):
+        # Import config window module
+        import virtuCameraMayaConfig
+        virtuCameraMayaConfig = reload(virtuCameraMayaConfig)
+        virtuCameraMayaConfig.VirtuCameraMayaConfig(self.config_file_path, self._after_save_callback)
+
     def _start_ui(self):
+        # Remove size preference to force the window calculate its size
+        windowName = 'VirtuCameraMayaWindow'
+        cmds.windowPref(windowName, remove=True)
+
         self._window_width = self._STREAM_WIDTH + 2
         self._window_height = self._STREAM_HEIGHT + 50
-        screen_width, screen_height = self._get_screen_size()
-        topLeft = [int((screen_height-self._window_height)/2.0),
-                   int((screen_width-self._window_width)/2.0)]
-        self._ui_window = cmds.window('VirtuCameraMayaWindow',
+        self._ui_window = cmds.window(windowName,
             width=self._window_width,
             height=self._window_height,
             menuBarVisible=False,
@@ -219,6 +220,9 @@ class VirtuCameraMaya(object):
             width=100,
             command=self._start_serving)
         self._ui_tx_help = cmds.text(label='')
+        self._ui_bt_conf = cmds.button(label='Config',
+            width=50,
+            command=self._open_config_window)
         self._ui_view = cmds.text(label='Click on Start Serving and connect through the App',
             backgroundColor=[0.2,0.2,0.2],
             width=self._window_width,
@@ -324,6 +328,7 @@ class VirtuCameraMaya(object):
 
     def __init__(self, ffmpeg_bin=None):
         self._set_ffmpeg_bin(ffmpeg_bin)
+        self.config_file_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), self._CONFIG_FILE)
         self.is_serving = False
         self.is_connected = False
         self._is_announcing = False
@@ -407,7 +412,7 @@ class VirtuCameraMaya(object):
             '-profile:v', 'high',
             '-level', '4.1',
             '-f', 'avi',
-            'tcp://%s:%d'%(self._tcp_clt_addr[0],port)
+            'tcp://%s:%d?tcp_nodelay=1'%(self._tcp_clt_addr[0],port)
         ]
         return ffmpeg_cmd
 
@@ -429,14 +434,6 @@ class VirtuCameraMaya(object):
         thread.start_new_thread(self._autosend_loop, (autosend_interval,))
 
     def _start_streaming(self):
-        if self.is_streaming or not self.is_serving:
-            return
-
-        if not self._maya_exec(cmds.objExists, self.current_camera):
-            self._tcp_send(self._CMD_ERR_MISSING_CAMERA)
-            return
-            
-        self.is_streaming = True
         # Read streaming parameters from TCP:
         # fps, 4 bytes (Float)
         # bitrate (Mbits/s), 4 bytes (Float)
@@ -446,6 +443,16 @@ class VirtuCameraMaya(object):
         data = self._tcp_recv(12)
         if not data:
             return
+
+        if self.is_streaming:
+            return
+
+        if not self._maya_exec(cmds.objExists, self.current_camera):
+            self._tcp_send(self._CMD_ERR_MISSING_CAMERA)
+            return
+            
+        self.is_streaming = True
+        
         fps, bitrate, port, opaque, self.is_autosend = struct.unpack('<ffH??', data)
         self._maya_print("Starting Viewport Streaming. %.2f fps, %.2f Mbits/s, Opaque: %d, Autosend: %d"%(fps, bitrate, opaque, self.is_autosend))
         self._ffmpeg_cmd = self._get_ffmpeg_cmd(fps, bitrate, port, opaque)
@@ -469,19 +476,18 @@ class VirtuCameraMaya(object):
         if self.is_autosend:
             self._start_autosend(fps)
 
-    def _stop_streaming(self, err=False):
+    def _stop_streaming(self):
         if not self.is_streaming:
             return
         self.is_streaming = False
         with self._fout_lock:
             self._fout.close()
         self._proc.wait()
+        self.is_autosend = False
         self._maya_exec(self._stop_streaming_ui)
         # Workaround to wait for Maya to start managing views again before setting active view
         time.sleep(0.2)
         self._maya_exec(self._activate_orig_active_view)
-        self.is_autosend = False
-        if err and self._proc.returncode !=0: raise subprocess.CalledProcessError(self._proc.returncode, self._ffmpeg_cmd)
         
     def _capture_viewport_img(self):
         if self._is_closing:
@@ -501,9 +507,9 @@ class VirtuCameraMaya(object):
             with self._fout_lock:
                 self._fout.write(img_bytes)
         except:
-            self._stop_streaming(err=True)
-            if not self.is_autosend:
-                self._tcp_send(self._CMD_ERR_NOT_STREAMING)
+            self._stop_streaming()
+            self._tcp_send(self._CMD_ERR_NOT_STREAMING)
+            self._maya_print("Ffmpeg has stopped working with return code "+str(self._proc.returncode))
 
     def _transform_current_camera(self, tr_matrix):
         if cmds.objExists(self.current_camera):
@@ -550,6 +556,78 @@ class VirtuCameraMaya(object):
             self._tcp_send(cmd, data)
         else:
             self._tcp_send(self._CMD_ERR_MISSING_CAMERA)
+
+    def _read_script_labels(self):
+        result = []
+        if not os.path.isfile(self.config_file_path):
+            return result
+        tree = et.ElementTree()
+        with open(self.config_file_path,'r') as file:
+            tree.parse(file)
+        config = tree.getroot()
+        scripts = config[0]
+        for script in scripts:
+            label = script.get('label')
+            if not label:
+                label = ' '
+            result.append(label)
+        return result
+
+    def _read_script_data(self, index):
+        if not os.path.isfile(self.config_file_path):
+            return (None, None)
+        tree = et.ElementTree()
+        with open(self.config_file_path,'r') as file:
+            tree.parse(file)
+        config = tree.getroot()
+        script = config[0][index]
+        code = script.text
+        if code == None:
+            code = ''
+        lang = int(script.get('lang'))
+        return (code, lang)
+
+    def _execute_script(self, cmd):
+        # read 'script_index' from TCP, 1 bytes (1 UInt8)
+        data = self._tcp_recv(1)
+        if not data:
+            return
+
+        script_index = struct.unpack('<B', data)[0]
+        script_code, script_lang = self._read_script_data(script_index)
+
+        if script_code == None or script_lang == None:
+            self._tcp_send(self._CMD_ERR_EXECUTE_SCRIPT, data)
+            self._maya_print("Can't execute script "+str(script_index+1)+". Reason: No config file found")
+            return
+        elif script_code == '':
+            self._tcp_send(self._CMD_ERR_EXECUTE_SCRIPT, data)
+            self._maya_print("Can't execute script "+str(script_index+1)+". Reason: Empty script")
+            return
+
+        script_code = script_code.replace('%SELCAM%', '"'+self.current_camera+'"')
+
+        try:
+            if script_lang == self._LANG_PY:
+                self._maya_exec(script_code)
+            elif script_lang == self._LANG_MEL:
+                self._maya_exec(mel.eval, script_code)
+        except:
+            # if execution returned error, send error with 'script_index'
+            self._tcp_send(self._CMD_ERR_EXECUTE_SCRIPT, data)
+            e = sys.exc_info()
+            self._maya_print("Error executing script "+str(script_index+1)+":\n"+str(e))
+        else:
+            # reply after execution with 'script_index'
+            self._tcp_send(cmd, data)
+
+    def _send_script_info(self, cmd):
+        script_labels = self._maya_exec(self._read_script_labels)
+        script_labels_str = str('%'.join(script_labels))
+        self._tcp_send_with_len(cmd, script_labels_str)
+
+    def _after_save_callback(self):
+        self._send_script_info(self._CMD_ASK_SCRIPT_INFO)
 
     def _send_server_info(self, cmd):
         data = struct.pack('<3H', *self._SERVER_VERSION)
@@ -670,19 +748,35 @@ class VirtuCameraMaya(object):
         self._tcp_send(cmd, data)
 
     def _get_camera_has_keys(self):
-        if cmds.objExists(self.current_camera):
-            cam_has_keys = False
-            for attr in self._CAMERA_KEY_ATTRS:
-                if cmds.connectionInfo(self.current_camera+attr, isDestination=True):
-                    cam_has_keys = True
+        if not cmds.objExists(self.current_camera):
+            return (None, None)
+        tr_has_keys = False
+        flen_has_keys = False
+        for attr in self._CAMERA_KEY_ATTRS:
+            if cmds.connectionInfo(self.current_camera+attr, isDestination=True):
+                if attr == '.focalLength':
+                    flen_has_keys = True
+                else:
+                    tr_has_keys = True
                     break
-            return cam_has_keys
-        return None
-
+        return (tr_has_keys, flen_has_keys)
+        
     def _send_camera_has_keys(self, cmd):
-        cam_has_keys = self._maya_exec(self._get_camera_has_keys)
-        if cam_has_keys != None:
-            data = struct.pack('<?', cam_has_keys)
+        tr_has_keys, flen_has_keys = self._maya_exec(self._get_camera_has_keys)
+        if tr_has_keys != None and flen_has_keys != None:
+            # Previously, a byte representing a boolean was sent, it was True when there was a key in any of the camera attributes.
+            # In that byte, LSB was 1 when the boolean was "True" and, for compatibility reasons, we keep LSB as 1 for "True" but
+            # now we add aditional data to the boolean byte converting it to an UInt8
+            # Using "LSB 0", bit 1 represents existence of keys in the transform and bit 2 represents existence of keys in the focal length.
+            cam_has_keys = 0b00000000
+            if tr_has_keys and flen_has_keys:
+                cam_has_keys = 0b00000111
+            elif tr_has_keys:
+                cam_has_keys = 0b00000011
+            elif flen_has_keys:
+                cam_has_keys = 0b00000101
+
+            data = struct.pack('<B', cam_has_keys)
             self._tcp_send(cmd, data)
         else:
             self._tcp_send(self._CMD_ERR_MISSING_CAMERA)
@@ -951,6 +1045,15 @@ class VirtuCameraMaya(object):
         elif cmd == self._CMD_DO_STOP_STREAMING:
             self._tcp_send(cmd)
             self._stop_streaming()
+            return
+
+        elif cmd == self._CMD_DO_EXECUTE_SCRIPT:
+            # don't acknowledge here, as it sends response after execution
+            self._execute_script(cmd)
+            return
+
+        elif cmd == self._CMD_ASK_SCRIPT_INFO:
+            self._send_script_info(cmd)
             return
 
         elif cmd == self._CMD_ASK_SERVER_INFO:
