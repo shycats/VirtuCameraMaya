@@ -1,6 +1,6 @@
 #The MIT License (MIT)
 #
-#Copyright (c) 2019 Pablo J. Garcia Gonzalez
+#Copyright (c) 2019-2020 Pablo J. Garcia Gonzalez
 #
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -44,10 +44,17 @@
 #   This program relies on ifaddr to obtain IP addresses.
 #   Source code and license should be included along with this program.
 #   License: MIT
+#
+# * python-mss (https://github.com/BoboTiG/python-mss):
+#   This program relies on python-mss to capture the screen.
+#   Source code and license should be included along with this program.
+#   License: MIT
 #------------------------------------------------------------------------------
 
+import virtuCameraMayaConfig
+virtuCameraMayaConfig = reload(virtuCameraMayaConfig)
+
 import thread, ctypes, socket, struct, subprocess, time, timeit, os, sys
-import xml.etree.ElementTree as et
 import maya.api.OpenMaya as api
 import maya.api.OpenMayaUI as apiUI
 from maya import OpenMayaUI as v1apiUI
@@ -76,6 +83,7 @@ if vendor_dir not in sys.path:
 import zeroconf
 import qrcode
 import ifaddr
+import mss
 
 class QtImageFactory(qrcode.image.base.BaseImage):
     def __init__(self, border, width, box_size):
@@ -103,18 +111,15 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,1,0)
+    _SERVER_VERSION = (1,2,0)
     _SERVER_PLATFORM = 'Maya'          # Please, don't exceed 10 characters (for readability purposes)
     _CONFIG_FILE = 'configuration.xml' # Configuration file name
     _ALPHA_BITRATE_RATIO = 0.2         # Factor of total bitrate used for Alpha
     _STREAM_WIDTH = 640                # Must be an even integer
     _STREAM_HEIGHT = 360               # Must be an even integer
-    _DEFAULT_PORT = 23354              # TCP port used by default
     _ANNOUNCEMENT_INTERVAL = 10        # re-announce every 10 seconds
     _ZEROCONF_TYPE = '_virtucamera._tcp.local.'
     _CAMERA_KEY_ATTRS = ('.focalLength','.tx','.ty','.tz','.rx','.ry','.rz')
-    _LANG_PY = 1
-    _LANG_MEL = 2
 
     def _command(tag):
         # UInt8 commands
@@ -173,13 +178,12 @@ class VirtuCameraMaya(object):
 
     def _update_ui_layout(self):
         cmds.formLayout(self._ui_layout, edit=True,
-            attachForm=[(self._ui_tx_port, 'top', 10), (self._ui_tx_port, 'left', 5), (self._ui_int_port, 'top', 6), (self._ui_bt_serve, 'top', 5), (self._ui_tx_help, 'top', 10), (self._ui_bt_conf, 'top', 5), (self._ui_bt_conf, 'right', 5), (self._ui_view, 'left', 0)],
-            attachControl=[(self._ui_int_port, 'left', 1, self._ui_tx_port), (self._ui_bt_serve, 'left', 5, self._ui_int_port), (self._ui_tx_help, 'left', 5, self._ui_bt_serve), (self._ui_tx_help, 'right', 5, self._ui_bt_conf), (self._ui_view, 'top', 5, self._ui_bt_serve)],
-            attachNone=[(self._ui_int_port, 'bottom'), (self._ui_int_port, 'right'), (self._ui_bt_serve, 'bottom'), (self._ui_bt_serve, 'right'), (self._ui_tx_help, 'bottom'), (self._ui_view, 'right'), (self._ui_view, 'bottom')])
+            attachForm=[(self._ui_bt_serve, 'left', 5), (self._ui_bt_serve, 'top', 5), (self._ui_tx_help, 'top', 10), (self._ui_bt_conf, 'top', 5), (self._ui_bt_conf, 'right', 5), (self._ui_view, 'left', 0)],
+            attachControl=[(self._ui_tx_help, 'left', 5, self._ui_bt_serve), (self._ui_tx_help, 'right', 5, self._ui_bt_conf), (self._ui_view, 'top', 5, self._ui_bt_serve)],
+            attachNone=[(self._ui_bt_serve, 'bottom'), (self._ui_bt_serve, 'right'), (self._ui_tx_help, 'bottom'), (self._ui_view, 'right'), (self._ui_view, 'bottom')])
 
     def _start_serving(self, caller=None):
-        port = cmds.intField(self._ui_int_port, q=True, value=True)
-        self._serve(port)
+        self._serve(self._config.server_port)
 
     def _stop_serving(self, caller=None):
         thread.start_new_thread(self._stop, ()) # workaround to avoid maya crash
@@ -189,10 +193,16 @@ class VirtuCameraMaya(object):
         thread.start_new_thread(self._stop, ()) # workaround to avoid maya crash
 
     def _open_config_window(self, caller=None):
-        # Import config window module
-        import virtuCameraMayaConfig
-        virtuCameraMayaConfig = reload(virtuCameraMayaConfig)
-        virtuCameraMayaConfig.VirtuCameraMayaConfig(self.config_file_path, self._after_save_callback)
+        self._config.show_window()
+
+    def _window_always_on_top(self, enable=True):
+        qw = v1apiUI.MQtUtil.findWindow(self._ui_window)
+        widget = wrapInstance(long(qw), QtWidgets.QWidget)
+        if enable:
+            widget.setWindowFlags(widget.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
+        else:
+            widget.setWindowFlags(widget.windowFlags() & ~QtCore.Qt.WindowStaysOnTopHint)
+        widget.show() # setWindowFlags hides window, calling show() is needed.
 
     def _start_ui(self):
         # Remove size preference to force the window calculate its size
@@ -212,11 +222,6 @@ class VirtuCameraMaya(object):
             closeCommand=self._close_ui,
             title='VirtuCamera For Maya %s.%s.%s'%self._SERVER_VERSION)
         self._ui_layout = cmds.formLayout(numberOfDivisions=100)
-        self._ui_tx_port = cmds.text(label='Port')
-        self._ui_int_port = cmds.intField(minValue=0,
-            maxValue=65535,
-            value=self._DEFAULT_PORT,
-            width=45)
         self._ui_bt_serve = cmds.button(label='Start Serving',
             width=100,
             command=self._start_serving)
@@ -237,14 +242,12 @@ class VirtuCameraMaya(object):
             qw = v1apiUI.MQtUtil.findControl(self._ui_view)
             widget = wrapInstance(long(qw), QtWidgets.QWidget)
             widget.setPixmap(qrcode.make(qr_str, image_factory=QtImageFactory, box_size=6).pixmap())
-            cmds.intField(self._ui_int_port, e=True, enable=False)
 
     def _stopped_ui(self):
         if not self._is_closing:
             cmds.button(self._ui_bt_serve, e=True, enable=True, label='Start Serving', command=self._start_serving)
             cmds.text(self._ui_tx_help, e=True, label='')
             cmds.text(self._ui_view, e=True, label='Click on Start Serving and connect through the App')
-            cmds.intField(self._ui_int_port, e=True, enable=True)
 
     def _connected_ui(self):
         cmds.text(self._ui_tx_help, e=True, label='')
@@ -282,10 +285,12 @@ class VirtuCameraMaya(object):
         cmds.frameLayout(bar_layout, edit=True, collapse=True)
         self._update_ui_layout()
         cmds.control(self._ui_view, edit=True, width=self._STREAM_WIDTH, height=self._STREAM_HEIGHT)
-        cmds.text(self._ui_tx_help, edit=True, label='Client App connected  |  Streaming viewport...')
+        cmds.text(self._ui_tx_help, edit=True, label='Client App connected  |  Streaming viewport')
         cmds.modelEditor(self._ui_view, e=True, activeView=True)
         self._hide_inactive_views()
         self._look_through_current_camera()
+        if self._is_streaming_screenshot:
+            self._window_always_on_top(True)
 
     def _activate_orig_active_view(self):
         cmds.modelEditor(self._orig_active_view, e=True, activeView=True)
@@ -293,6 +298,8 @@ class VirtuCameraMaya(object):
     def _stop_streaming_ui(self):
         self._unhide_views()
         if not self._is_closing:
+            if self._is_streaming_screenshot:
+                self._window_always_on_top(False)
             cmds.text(self._ui_tx_help, edit=True, label='')
             cmds.deleteUI(self._ui_view, panel=True)
             self._ui_view = cmds.text(label='Client App connected',
@@ -301,7 +308,7 @@ class VirtuCameraMaya(object):
                 height=self._STREAM_HEIGHT,
                 parent=self._ui_layout)
             self._update_ui_layout()
-
+            
     def _set_ffmpeg_bin(self, ffmpeg_bin):
         if ffmpeg_bin != None:
             self.ffmpeg_bin = ffmpeg_bin
@@ -329,13 +336,15 @@ class VirtuCameraMaya(object):
 
     def __init__(self, ffmpeg_bin=None):
         self._set_ffmpeg_bin(ffmpeg_bin)
-        self.config_file_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), self._CONFIG_FILE)
+        config_file_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), self._CONFIG_FILE)
+        self._config = virtuCameraMayaConfig.VirtuCameraMayaConfig(config_file_path, self._after_save_callback)
         self.is_serving = False
         self.is_connected = False
         self._is_announcing = False
         self.is_streaming = False
         self.is_autosend = False
         self._is_closing = False
+        self._is_streaming_screenshot = False
         self.current_camera = ''
         self._hidden_views = []
         self._maya_lock = thread.allocate_lock()
@@ -375,7 +384,7 @@ class VirtuCameraMaya(object):
     def _maya_print(self, txt):
         self._maya_exec(self._print, 'VirtuCamera: '+txt)
 
-    def _get_ffmpeg_cmd(self, fps, bitrate, port, opaque):
+    def _get_ffmpeg_cmd(self, fps, bitrate, port, opaque, vflip):
         ffmpeg_cmd = [
             self.ffmpeg_bin,
             '-y',
@@ -388,15 +397,22 @@ class VirtuCameraMaya(object):
             '-i', '-',                               # The input comes from a pipe
         ]
         if opaque:
+            if vflip:
+                ffmpeg_cmd += [
+                    '-vf', 'vflip',
+                ]
             ffmpeg_cmd += [
-                '-vf', 'vflip',
                 '-b:v', '%.3fM'%bitrate,            # RGB Bitrate
             ]
         else:
             bitrate_rgb = bitrate * (1-self._ALPHA_BITRATE_RATIO)
             bitrate_alpha = bitrate * self._ALPHA_BITRATE_RATIO
+            filter_complex = '[0:v]'
+            if vflip:
+                filter_complex += 'vflip,'
+            filter_complex += 'split=2[rgbout][alphain];[alphain]alphaextract[alphaout]'
             ffmpeg_cmd += [
-                '-filter_complex', '[0:v]vflip,split=2[rgbout][alphain];[alphain]alphaextract[alphaout]',
+                '-filter_complex', filter_complex,
                 '-map', '[rgbout]',
                 '-map', '[alphaout]',
                 '-b:v:0', '%.3fM'%bitrate_rgb,      # RGB Bitrate
@@ -434,6 +450,16 @@ class VirtuCameraMaya(object):
         autosend_interval = (1.0/fps)
         thread.start_new_thread(self._autosend_loop, (autosend_interval,))
 
+    def _init_capture_vars(self):
+        if self._is_streaming_screenshot:
+            self._sct = mss.mss()
+            qw = v1apiUI.MQtUtil.findControl(self._ui_view)
+            self._ui_view_qw = wrapInstance(long(qw), QtWidgets.QWidget)
+        else:
+            self._view = apiUI.M3dView.getM3dViewFromModelPanel(self._ui_view)
+            self._img = api.MImage()
+            self._img_len = self._STREAM_WIDTH * self._STREAM_HEIGHT * 4 # x4 - rgba pixels
+
     def _start_streaming(self):
         # Read streaming parameters from TCP:
         # fps, 4 bytes (Float)
@@ -456,7 +482,10 @@ class VirtuCameraMaya(object):
         
         fps, bitrate, port, opaque, self.is_autosend = struct.unpack('<ffH??', data)
         self._maya_print("Starting Viewport Streaming. %.2f fps, %.2f Mbits/s, Opaque: %d, Autosend: %d"%(fps, bitrate, opaque, self.is_autosend))
-        self._ffmpeg_cmd = self._get_ffmpeg_cmd(fps, bitrate, port, opaque)
+
+        self._is_streaming_screenshot = (self._config.capture_mode == self._config.CAPMODE_SCREENSHOT)
+        vflip = not self._is_streaming_screenshot
+        self._ffmpeg_cmd = self._get_ffmpeg_cmd(fps, bitrate, port, opaque, vflip)
         #self._maya_print(self._ffmpeg_cmd)
         try:
             if hasattr(subprocess, 'STARTUPINFO'):
@@ -471,9 +500,7 @@ class VirtuCameraMaya(object):
             return
         self._fout = self._proc.stdin
         self._maya_exec(self._start_streaming_ui)
-        self._view = apiUI.M3dView.active3dView()
-        self._img = api.MImage()
-        self._img_len = self._STREAM_WIDTH * self._STREAM_HEIGHT * 4
+        self._maya_exec(self._init_capture_vars)
         if self.is_autosend:
             self._start_autosend(fps)
 
@@ -490,7 +517,7 @@ class VirtuCameraMaya(object):
         time.sleep(0.2)
         self._maya_exec(self._activate_orig_active_view)
         
-    def _capture_viewport_img(self):
+    def _capture_viewport_buffer(self):
         if self._is_closing:
             return
         self._view.readColorBuffer(self._img)
@@ -498,12 +525,25 @@ class VirtuCameraMaya(object):
         img_bytes = ctypes.string_at(img_ptr, self._img_len)
         return img_bytes
     
+    def _capture_viewport_screenshot(self):
+        if self._is_closing:
+            return
+        pos = self._ui_view_qw.mapToGlobal(self._ui_view_qw.pos())
+        monitor = {"top": pos.y(), "left": pos.x()-1, "width": self._STREAM_WIDTH, "height": self._STREAM_HEIGHT}
+        img_bytes = self._sct.grab(monitor).raw
+        return img_bytes
+
     def _send_viewport_img(self):
         if not self.is_streaming:
             if not self.is_autosend:
                 self._tcp_send(self._CMD_ERR_NOT_STREAMING)
             return
-        img_bytes = self._maya_exec(self._capture_viewport_img)
+
+        if self._is_streaming_screenshot:
+            img_bytes = self._capture_viewport_screenshot()
+        else:
+            img_bytes = self._maya_exec(self._capture_viewport_buffer)
+        
         try:
             with self._fout_lock:
                 self._fout.write(img_bytes)
@@ -558,36 +598,6 @@ class VirtuCameraMaya(object):
         else:
             self._tcp_send(self._CMD_ERR_MISSING_CAMERA)
 
-    def _read_script_labels(self):
-        result = []
-        if not os.path.isfile(self.config_file_path):
-            return result
-        tree = et.ElementTree()
-        with open(self.config_file_path,'r') as file:
-            tree.parse(file)
-        config = tree.getroot()
-        scripts = config[0]
-        for script in scripts:
-            label = script.get('label')
-            if not label:
-                label = ' '
-            result.append(label)
-        return result
-
-    def _read_script_data(self, index):
-        if not os.path.isfile(self.config_file_path):
-            return (None, None)
-        tree = et.ElementTree()
-        with open(self.config_file_path,'r') as file:
-            tree.parse(file)
-        config = tree.getroot()
-        script = config[0][index]
-        code = script.text
-        if code == None:
-            code = ''
-        lang = int(script.get('lang'))
-        return (code, lang)
-
     def _execute_script(self, cmd):
         # read 'script_index' from TCP, 1 bytes (1 UInt8)
         data = self._tcp_recv(1)
@@ -595,23 +605,23 @@ class VirtuCameraMaya(object):
             return
 
         script_index = struct.unpack('<B', data)[0]
-        script_code, script_lang = self._read_script_data(script_index)
-
-        if script_code == None or script_lang == None:
+        if script_index >= self._config.script_count:
             self._tcp_send(self._CMD_ERR_EXECUTE_SCRIPT, data)
-            self._maya_print("Can't execute script "+str(script_index+1)+". Reason: No config file found")
+            self._maya_print("Can't execute script "+str(script_index+1)+". Reason: Script doesn't exist")
             return
-        elif script_code == '':
+
+        script_code = self._config.script_codes[script_index]
+        if script_code == '':
             self._tcp_send(self._CMD_ERR_EXECUTE_SCRIPT, data)
             self._maya_print("Can't execute script "+str(script_index+1)+". Reason: Empty script")
             return
 
         script_code = script_code.replace('%SELCAM%', '"'+self.current_camera+'"')
-
+        script_lang = self._config.script_langs[script_index]
         try:
-            if script_lang == self._LANG_PY:
+            if script_lang == self._config.LANG_PY:
                 self._maya_exec(script_code)
-            elif script_lang == self._LANG_MEL:
+            elif script_lang == self._config.LANG_MEL:
                 self._maya_exec(mel.eval, script_code)
         except:
             # if execution returned error, send error with 'script_index'
@@ -623,12 +633,12 @@ class VirtuCameraMaya(object):
             self._tcp_send(cmd, data)
 
     def _send_script_info(self, cmd):
-        script_labels = self._maya_exec(self._read_script_labels)
+        script_labels = [' ' if not label else label for label in self._config.script_labels]
         script_labels_str = str('%'.join(script_labels))
         self._tcp_send_with_len(cmd, script_labels_str)
 
     def _after_save_callback(self):
-        # do it in new thread to avoid maya crash
+        # new thread to avoid maya crash
         thread.start_new_thread(self._send_script_info, (self._CMD_ASK_SCRIPT_INFO,))
 
     def _send_server_info(self, cmd):
@@ -1076,7 +1086,10 @@ class VirtuCameraMaya(object):
     def _server_register(self):
         with self._zconf_lock:
             hostname = socket.gethostname()
-            ips = socket.gethostbyname_ex(hostname)[-1]
+            try:
+                ips = socket.gethostbyname_ex(hostname)[-1]
+            except:
+                ips = None
             if ips:
                 compname = self._get_server_name().decode('utf-8')
                 hostaddr = ips[0]

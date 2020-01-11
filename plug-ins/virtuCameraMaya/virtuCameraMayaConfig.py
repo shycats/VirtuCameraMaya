@@ -1,6 +1,6 @@
 #The MIT License (MIT)
 #
-#Copyright (c) 2019 Pablo J. Garcia Gonzalez
+#Copyright (c) 2019-2020 Pablo J. Garcia Gonzalez
 #
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -27,39 +27,32 @@ import os
 class VirtuCameraMayaConfig(object):
     # Constants
     _WINDOW_SIZE = (800,600)
-    _LANG_PY = 1
-    _LANG_MEL = 2
     _SAMPLE_PY = '# SAMPLE CODE\n# Duplicates the camera selected in VirtuCamera\n# Tip: %SELCAM% will be replaced by the path to the camera transform\n\nimport maya.cmds as cmds\n\ncam_transform = %SELCAM%\ncmds.duplicate(cam_transform)'
     _SAMPLE_MEL = '// SAMPLE CODE\n// Duplicates the camera selected in VirtuCamera\n// Tip: %SELCAM% will be replaced by the path to the camera transform\n\n$cam_transform = %SELCAM%;\nduplicate $cam_transform;\n'
-
-    # Show existing UI if exists
-    def __new__(cls, *args, **kwargs):
-        window = 'VirtuCameraMayaConfigWindow'
-        if cmds.window(window, q=True, exists=True):
-            cmds.showWindow(window)
-            return None
-        else:
-            return super(VirtuCameraMayaConfig, cls).__new__(cls, *args, **kwargs)
+    LANG_PY = 1
+    LANG_MEL = 2
+    CAPMODE_BUFFER = 'Viewport Buffer'
+    CAPMODE_SCREENSHOT = 'Screenshot'
+    DEFAULT_CAPMODE = CAPMODE_BUFFER    # Default capture mode
+    DEFAULT_SRVPORT = 23354              # TCP port used by default
+    
 
     def __init__(self, config_file_path, saved_callback):
         self.config_file_path = config_file_path
         self._saved_callback = saved_callback
-        self._init_vars()
-        self._start_ui()
-        self._load_config()
-        self._update_ui_from_cache()
-        self._update_enable_state_ui()
+        self.read_config()
 
     def _init_vars(self):
-        self._script_count = 0
-        self._last_script_num = 0
-        self._self_updating_label = False
-        self._last_label = ''
-        self._script_code_cache = []
-        self._script_lang_cache = []
-        self._script_label_cache = []
+        self.server_port = self.DEFAULT_SRVPORT
+        self.capture_mode = self.DEFAULT_CAPMODE
+        self.script_count = 0
+        self.script_codes = []
+        self.script_langs = []
+        self.script_labels = []
 
-    def _load_config(self):
+    def read_config(self):
+        self._init_vars()
+
         if not os.path.isfile(self.config_file_path):
             return
         tree = et.ElementTree()
@@ -67,20 +60,64 @@ class VirtuCameraMayaConfig(object):
             with open(self.config_file_path,'r') as file:
                 tree.parse(file)
         except:
-            cmds.confirmDialog(title="Error", message='Error reading config file', button='Ok', defaultButton='Ok')
-        
+            print('VirtuCamera: Error reading config file')
+            return
+
         config = tree.getroot()
-        scripts = config[0]
-        self._script_count = len(scripts)
-        if self._script_count > 0:
-            for script in scripts:
-                self._script_label_cache.append(script.get('label'))
-                self._script_lang_cache.append(int(script.get('lang')))
-                script_code = script.text
-                if script_code == None:
-                    script_code = ''
-                self._script_code_cache.append(script_code)
-            self._set_script_num_ui(1, 1, self._script_count)
+        for item in config:
+            # Read script config
+            if item.tag == 'scripts':
+                self.script_count = len(item)
+                if self.script_count > 0:
+                    for script in item:
+                        self.script_labels.append(script.get('label'))
+                        self.script_langs.append(int(script.get('lang')))
+                        script_code = script.text
+                        if script_code == None:
+                            script_code = ''
+                        self.script_codes.append(script_code)
+            # Read general config
+            elif item.tag == 'general':
+                srvport = item.get('srvport')
+                if srvport != None:
+                    self.server_port = int(srvport)
+                capmode = item.get('capmode')
+                if capmode != None:
+                    self.capture_mode = capmode
+
+    def _init_vars_ui(self):
+        self._self_updating_label = False
+        self._last_script_num = 0
+        self._last_server_port = self.server_port
+        self._last_capture_mode = self.capture_mode
+        self._last_label = ''
+        self._script_code_cache = []
+        self._script_lang_cache = []
+        self._script_label_cache = []
+
+    def show_window(self):
+        window = 'VirtuCameraMayaConfigWindow'
+        if cmds.window(window, q=True, exists=True):
+            cmds.showWindow(window) # Show existing UI if exists
+        else:
+            self._init_vars_ui()
+            self._start_ui()
+            self.update_window()
+
+    def update_window(self):
+        self._load_ui()
+        self._update_ui_from_cache()
+        self._update_enable_state_ui()
+
+    def _load_ui(self):
+        self._script_code_cache = list(self.script_codes)
+        self._script_lang_cache = list(self.script_langs)
+        self._script_label_cache = list(self.script_labels)
+        self._script_count_ui = self.script_count
+        if self._script_count_ui > 0:
+            self._set_script_num_ui(1, 1, self._script_count_ui)
+        self._set_port_num_ui(self.server_port)
+        self._set_cap_mode_ui(self.capture_mode)
 
     def _save_config(self):
         config = et.Element('virtuCameraConfig')
@@ -90,13 +127,17 @@ class VirtuCameraMayaConfig(object):
             script.set('label', self._script_label_cache[i])
             script.set('lang', str(self._script_lang_cache[i]))
             script.text = self._script_code_cache[i]
+        general = et.SubElement(config, 'general')
+        general.set('srvport', str(self._get_port_num_ui()))
+        general.set('capmode', self._get_cap_mode_ui())
         tree = et.ElementTree(config)
         try:
             with open(self.config_file_path,'w') as savefile:
                 tree.write(savefile)
+            return True
         except:
             cmds.confirmDialog(title="Error", message='Error saving config file, make sure you have write permission in the plug-in folder', button='Ok', defaultButton='Ok')
-            self._enable_control(self._ui_save)
+            return False
 
     def _cache_pos(self):
         return self._get_script_num_ui() - 1
@@ -105,7 +146,7 @@ class VirtuCameraMayaConfig(object):
         cache_pos = self._cache_pos()
         self._script_code_cache.insert(cache_pos, self._SAMPLE_PY)
         self._script_label_cache.insert(cache_pos, '')
-        self._script_lang_cache.insert(cache_pos, self._LANG_PY)
+        self._script_lang_cache.insert(cache_pos, self.LANG_PY)
 
     def _remove_cache_entry(self):
         cache_pos = self._cache_pos()
@@ -128,7 +169,7 @@ class VirtuCameraMayaConfig(object):
         cache_pos = self._cache_pos()
         code = ''
         label = ''
-        lang = self._LANG_PY
+        lang = self.LANG_PY
         if cache_pos >= 0:
             code = self._script_code_cache[cache_pos]
             label = self._script_label_cache[cache_pos]
@@ -180,14 +221,26 @@ class VirtuCameraMayaConfig(object):
         self._enable_control(self._ui_sfield)
 
     def _update_enable_state_ui(self):
-        if self._script_count == 0:
+        if self._script_count_ui == 0:
             self._zero_script_count_ui()
-        elif self._script_count == 1:
+        elif self._script_count_ui == 1:
             self._one_script_count_ui()
-        elif self._script_count == 99:
+        elif self._script_count_ui == 99:
             self._full_script_count_ui()
         else:
             self._mid_script_count_ui()
+
+    def _get_port_num_ui(self):
+        return cmds.intField(self._port_num_ui, query=True, value=True)
+
+    def _set_port_num_ui(self, val):
+        cmds.intField(self._port_num_ui, edit=True, value=val)
+
+    def _get_cap_mode_ui(self):
+        return cmds.optionMenuGrp(self._cap_mode_ui, query=True, value=True)
+
+    def _set_cap_mode_ui(self, val):
+        cmds.optionMenuGrp(self._cap_mode_ui, edit=True, value=val)
 
     def _get_script_code_ui(self):
         return cmds.scrollField(self._ui_sfield, query=True, text=True)
@@ -218,20 +271,20 @@ class VirtuCameraMayaConfig(object):
         self._last_label = text
 
     def _increase_script_count(self):
-        self._script_count += 1
+        self._script_count_ui += 1
         script_num = self._get_script_num_ui()
         script_num += 1
-        self._set_script_num_ui(script_num, 1, self._script_count)
+        self._set_script_num_ui(script_num, 1, self._script_count_ui)
 
     def _decrease_script_count(self):
-        self._script_count -= 1
-        if self._script_count == 0:
+        self._script_count_ui -= 1
+        if self._script_count_ui == 0:
             min_val = 0
         else:
             min_val = 1
         script_num = self._get_script_num_ui()
         script_num -= 1
-        self._set_script_num_ui(script_num, min_val, self._script_count)
+        self._set_script_num_ui(script_num, min_val, self._script_count_ui)
 
     def _new_script_ui(self, caller=None):
         self._update_cache()
@@ -270,25 +323,37 @@ class VirtuCameraMayaConfig(object):
         lang = self._get_lang_ui()
         script_code = self._get_script_code_ui()
 
-        if lang == self._LANG_PY and script_code == self._SAMPLE_MEL:
+        if lang == self.LANG_PY and script_code == self._SAMPLE_MEL:
             self._set_script_code_ui(self._SAMPLE_PY)
-        elif lang == self._LANG_MEL  and script_code == self._SAMPLE_PY:
+        elif lang == self.LANG_MEL  and script_code == self._SAMPLE_PY:
             self._set_script_code_ui(self._SAMPLE_MEL)
         self._enable_control(self._ui_save)
 
     def _code_changed_ui(self, caller=None):
         self._enable_control(self._ui_save)
 
+    def _port_num_changed_ui(self, caller=None):
+        self._last_server_port = self._get_port_num_ui()
+        self._enable_control(self._ui_save)
+
+    def _cap_mode_changed_ui(self, caller=None):
+        self._last_capture_mode = self._get_cap_mode_ui()
+        self._enable_control(self._ui_save)
+
     def _save_ui(self, caller=None):
         self._disable_control(self._ui_save)
         self._update_cache()
-        self._save_config()
-        self._saved_callback()
+        if self._save_config():
+            self.read_config() # read config back to update class state
+            self._saved_callback()
+        else:
+            self._enable_control(self._ui_save)
 
     def _revert_ui(self):
-        self._set_script_num_ui(self._last_script_num, 1, self._script_count)
+        self._set_script_num_ui(self._last_script_num, 1, self._script_count_ui)
+        self._set_port_num_ui(self._last_server_port)
+        self._set_cap_mode_ui(self._last_capture_mode)
         self._enable_control(self._ui_save)
-            
 
     def _close_ui(self, caller=None):
         not_saved = cmds.control(self._ui_save, query=True, enable=True)
@@ -309,8 +374,24 @@ class VirtuCameraMayaConfig(object):
         if cmds.windowPref(windowName, exists=True):
             cmds.windowPref(windowName, remove=True)
         self._ui_window = cmds.window(windowName, width=self._WINDOW_SIZE[0], height=self._WINDOW_SIZE[1], menuBarVisible=False, titleBar=True, visible=True, sizeable=True, closeCommand=self._close_ui, title='VirtuCamera Configuration')
-        form_lay = cmds.formLayout(width=505, height=300)
+        form_lay = cmds.formLayout(width=500, height=400)
         col_lay = cmds.columnLayout(adjustableColumn=True, columnAttach=('both', 0), width=465)
+
+        cmds.text(label='General Settings', align='left')
+        cmds.separator(height=15, style='none')
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(59, 80, 45), columnAttach=[(1, 'both', 0), (2, 'both', 0), (3, 'both', 0)])
+        cmds.separator(style='none')
+        cmds.text(label='Server Port', align='right')
+        self._port_num_ui = cmds.intField(width=45, value=self.DEFAULT_SRVPORT, minValue=0, maxValue=65535, changeCommand=self._port_num_changed_ui)
+        cmds.setParent('..')
+        cmds.separator(height=5, style='none')
+        self._cap_mode_ui = cmds.optionMenuGrp(label='Capture Mode', changeCommand=self._cap_mode_changed_ui)
+        cmds.menuItem(label=self.CAPMODE_BUFFER)
+        cmds.menuItem(label=self.CAPMODE_SCREENSHOT)
+        cmds.text(label="                                          'Viewport Buffer' is faster. Use 'Screenshot' if you are\n                                          having problems visualizing the viewport on the App.", align='left')
+        cmds.separator(height=25, style='none')
+        cmds.separator()
+        cmds.separator(height=15, style='none')
         cmds.text(label='Custom Scripts', align='left')
         cmds.separator(height=15, style='none')
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(600, 80, 80), adjustableColumn=1, columnAttach=[(1, 'both', 0), (2, 'both', 0), (3, 'both', 0)])
@@ -319,7 +400,7 @@ class VirtuCameraMayaConfig(object):
         self._rem_bt_ut = cmds.button(label='Remove', command=self._remove_script_ui, enable=False)
         cmds.setParent('..')
         self._label_ui = cmds.textFieldGrp(label='Button Label', textChangedCommand=self._label_changed_ui, enable=False)
-        self._lang_ui = cmds.radioButtonGrp(label='Language', labelArray2=['Python', 'MEL'], numberOfRadioButtons=2, select=self._LANG_PY, changeCommand=self._languaje_changed_ui, enable=False)
+        self._lang_ui = cmds.radioButtonGrp(label='Language', labelArray2=['Python', 'MEL'], numberOfRadioButtons=2, select=self.LANG_PY, changeCommand=self._languaje_changed_ui, enable=False)
         self._code_lb_ui = cmds.text(label='Script Code', align='left', enable=False)
         cmds.setParent('..')
         self._ui_sfield = cmds.scrollField(editable=True, wordWrap=False, keyPressCommand=self._code_changed_ui, enable=False)
@@ -332,5 +413,3 @@ class VirtuCameraMayaConfig(object):
         cmds.formLayout(form_lay, edit=True, attachForm=[(col_lay, 'top', 20), (col_lay, 'left', 20), (col_lay, 'right', 20), (self._ui_sfield, 'left', 20), (self._ui_sfield, 'right', 20), (col_lay2, 'bottom', 20), (col_lay2, 'left', 20), (col_lay2, 'right', 20)], attachControl=[(self._ui_sfield, 'top', 0, col_lay), (self._ui_sfield, 'bottom', 15, col_lay2)])
         cmds.setParent('..')
         cmds.showWindow(self._ui_window)
-
-
