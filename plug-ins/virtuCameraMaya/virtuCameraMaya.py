@@ -111,7 +111,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,2,0)
+    _SERVER_VERSION = (1,2,1)
     _SERVER_PLATFORM = 'Maya'          # Please, don't exceed 10 characters (for readability purposes)
     _CONFIG_FILE = 'configuration.xml' # Configuration file name
     _ALPHA_BITRATE_RATIO = 0.2         # Factor of total bitrate used for Alpha
@@ -390,7 +390,7 @@ class VirtuCameraMaya(object):
             '-y',
             '-f:v', 'rawvideo',
             '-c:v', 'rawvideo',
-            '-s', '%dx%d'%(self._STREAM_WIDTH, self._STREAM_HEIGHT), # frame dimensions
+            '-s', '%dx%d'%(self._real_stream_width, self._real_stream_height), # frame dimensions
             '-pix_fmt', 'bgra',
             '-r', '%.3f'%fps,                        # frames per second
             '-an',                                   # Tells FFMPEG not to expect any audio
@@ -451,6 +451,8 @@ class VirtuCameraMaya(object):
         thread.start_new_thread(self._autosend_loop, (autosend_interval,))
 
     def _init_capture_vars(self):
+        self._real_stream_width = cmds.control(self._ui_view, query=True, width=True)
+        self._real_stream_height = cmds.control(self._ui_view, query=True, height=True)
         if self._is_streaming_screenshot:
             self._sct = mss.mss()
             qw = v1apiUI.MQtUtil.findControl(self._ui_view)
@@ -458,7 +460,13 @@ class VirtuCameraMaya(object):
         else:
             self._view = apiUI.M3dView.getM3dViewFromModelPanel(self._ui_view)
             self._img = api.MImage()
-            self._img_len = self._STREAM_WIDTH * self._STREAM_HEIGHT * 4 # x4 - rgba pixels
+            self._img_len = self._real_stream_width * self._real_stream_height * 4 # x4 - rgba pixels
+
+    def _deinit_streaming_ui(self):
+        self._maya_exec(self._stop_streaming_ui)
+        # Workaround to wait for Maya to start managing views again before setting active view
+        time.sleep(0.2)
+        self._maya_exec(self._activate_orig_active_view)
 
     def _start_streaming(self):
         # Read streaming parameters from TCP:
@@ -484,9 +492,12 @@ class VirtuCameraMaya(object):
         self._maya_print("Starting Viewport Streaming. %.2f fps, %.2f Mbits/s, Opaque: %d, Autosend: %d"%(fps, bitrate, opaque, self.is_autosend))
 
         self._is_streaming_screenshot = (self._config.capture_mode == self._config.CAPMODE_SCREENSHOT)
+        self._maya_exec(self._start_streaming_ui)
+        self._maya_exec(self._init_capture_vars)
+
         vflip = not self._is_streaming_screenshot
         self._ffmpeg_cmd = self._get_ffmpeg_cmd(fps, bitrate, port, opaque, vflip)
-        #self._maya_print(self._ffmpeg_cmd)
+
         try:
             if hasattr(subprocess, 'STARTUPINFO'):
                 startupinfo = subprocess.STARTUPINFO()
@@ -497,10 +508,11 @@ class VirtuCameraMaya(object):
         except:
             self._tcp_send(self._CMD_ERR_FFMPEG)
             self.is_streaming = False
+            self._deinit_streaming_ui()
+            self._maya_print("Error starting Ffmpeg")
             return
         self._fout = self._proc.stdin
-        self._maya_exec(self._start_streaming_ui)
-        self._maya_exec(self._init_capture_vars)
+        
         if self.is_autosend:
             self._start_autosend(fps)
 
@@ -512,10 +524,7 @@ class VirtuCameraMaya(object):
             self._fout.close()
         self._proc.wait()
         self.is_autosend = False
-        self._maya_exec(self._stop_streaming_ui)
-        # Workaround to wait for Maya to start managing views again before setting active view
-        time.sleep(0.2)
-        self._maya_exec(self._activate_orig_active_view)
+        self._deinit_streaming_ui()
         
     def _capture_viewport_buffer(self):
         if self._is_closing:
@@ -529,7 +538,7 @@ class VirtuCameraMaya(object):
         if self._is_closing:
             return
         pos = self._ui_view_qw.mapToGlobal(self._ui_view_qw.pos())
-        monitor = {"top": pos.y(), "left": pos.x()-1, "width": self._STREAM_WIDTH, "height": self._STREAM_HEIGHT}
+        monitor = {"top": pos.y(), "left": pos.x()-1, "width": self._real_stream_width, "height": self._real_stream_height}
         img_bytes = self._sct.grab(monitor).raw
         return img_bytes
 

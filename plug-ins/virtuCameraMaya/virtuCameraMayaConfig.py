@@ -374,7 +374,7 @@ class VirtuCameraMayaConfig(object):
         if cmds.windowPref(windowName, exists=True):
             cmds.windowPref(windowName, remove=True)
         self._ui_window = cmds.window(windowName, width=self._WINDOW_SIZE[0], height=self._WINDOW_SIZE[1], menuBarVisible=False, titleBar=True, visible=True, sizeable=True, closeCommand=self._close_ui, title='VirtuCamera Configuration')
-        form_lay = cmds.formLayout(width=500, height=400)
+        form_lay = cmds.formLayout(width=550, height=400)
         col_lay = cmds.columnLayout(adjustableColumn=True, columnAttach=('both', 0), width=465)
 
         cmds.text(label='General Settings', align='left')
@@ -388,7 +388,7 @@ class VirtuCameraMayaConfig(object):
         self._cap_mode_ui = cmds.optionMenuGrp(label='Capture Mode', changeCommand=self._cap_mode_changed_ui)
         cmds.menuItem(label=self.CAPMODE_BUFFER)
         cmds.menuItem(label=self.CAPMODE_SCREENSHOT)
-        cmds.text(label="                                          'Viewport Buffer' is faster. Use 'Screenshot' if you are\n                                          having problems visualizing the viewport on the App.", align='left')
+        cmds.text(label="                                          'Viewport Buffer' is faster. 'Screenshot' is experimental, only use it\n                                           if you are having problems visualizing the viewport on the App.", align='left')
         cmds.separator(height=25, style='none')
         cmds.separator()
         cmds.separator(height=15, style='none')
