@@ -111,7 +111,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,2,1)
+    _SERVER_VERSION = (1,2,2)
     _SERVER_PLATFORM = 'Maya'          # Please, don't exceed 10 characters (for readability purposes)
     _CONFIG_FILE = 'configuration.xml' # Configuration file name
     _ALPHA_BITRATE_RATIO = 0.2         # Factor of total bitrate used for Alpha
@@ -659,6 +659,7 @@ class VirtuCameraMaya(object):
         # replace shapes with transforms (maya returns shapes when other objects are parented under a camera)
         cam_shapes = cmds.ls(cameras, shapes=True)
         cameras = list(set(cmds.ls(cameras, type="transform") + cmds.ls(cmds.listRelatives(cam_shapes, parent=True, fullPath=True), type="transform")))
+        cameras.sort()
         return cameras
 
     def _send_scene_cameras(self, cmd):
