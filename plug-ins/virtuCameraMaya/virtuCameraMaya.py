@@ -111,7 +111,7 @@ class QtImageFactory(qrcode.image.base.BaseImage):
 
 class VirtuCameraMaya(object):
     # Constants
-    _SERVER_VERSION = (1,2,2)
+    _SERVER_VERSION = (1,2,3)
     _SERVER_PLATFORM = 'Maya'          # Please, don't exceed 10 characters (for readability purposes)
     _CONFIG_FILE = 'configuration.xml' # Configuration file name
     _ALPHA_BITRATE_RATIO = 0.2         # Factor of total bitrate used for Alpha
@@ -347,6 +347,7 @@ class VirtuCameraMaya(object):
         self._is_streaming_screenshot = False
         self.current_camera = ''
         self._hidden_views = []
+        self._is_z_up = cmds.upAxis( q=True, axis=True ) == 'z'
         self._maya_lock = thread.allocate_lock()
         self._fout_lock = thread.allocate_lock()
         self._zconf_lock = thread.allocate_lock()
@@ -561,9 +562,25 @@ class VirtuCameraMaya(object):
             self._tcp_send(self._CMD_ERR_NOT_STREAMING)
             self._maya_print("Ffmpeg has stopped working with return code "+str(self._proc.returncode))
 
+    def _vc_to_maya_up_axis(self, tr_matrix):
+        if self._is_z_up:
+            rot_mat = api.MMatrix((1, 0, 0, 0, 0, 0, 1, 0, 0,-1, 0, 0, 0, 0, 0, 1))
+            mat = api.MMatrix(tr_matrix)
+            mat *= rot_mat
+            return tuple(mat)
+        return tr_matrix
+
+    def _maya_to_vc_up_axis(self, tr_matrix):
+        if self._is_z_up:
+            rot_mat = api.MMatrix((1, 0, 0, 0, 0, 0,-1, 0, 0, 1, 0, 0, 0, 0, 0, 1))
+            mat = api.MMatrix(tr_matrix)
+            mat *= rot_mat
+            return tuple(mat)
+        return tr_matrix
+
     def _transform_current_camera(self, tr_matrix):
         if cmds.objExists(self.current_camera):
-            cmds.xform(self.current_camera, matrix = tr_matrix)
+            cmds.xform(self.current_camera, matrix = self._vc_to_maya_up_axis(tr_matrix))
             return True
         return False
 
@@ -579,7 +596,7 @@ class VirtuCameraMaya(object):
 
     def _transform_current_camera_at_time(self, tr_matrix, time):
         if cmds.objExists(self.current_camera):
-            cmds.xform(self.current_camera, matrix = tr_matrix)
+            cmds.xform(self.current_camera, matrix = self._vc_to_maya_up_axis(tr_matrix))
             self._maya_set_current_time(time)
             return True
         return False
@@ -596,7 +613,8 @@ class VirtuCameraMaya(object):
 
     def _get_current_camera_transform(self):
         if cmds.objExists(self.current_camera):
-            return cmds.xform(self.current_camera, q=True, matrix=True)
+            tr_matrix = cmds.xform(self.current_camera, q=True, matrix=True)
+            return self._maya_to_vc_up_axis(tr_matrix)
         return None
 
     def _send_camera_transform(self, cmd):
@@ -848,7 +866,7 @@ class VirtuCameraMaya(object):
                 end = start+16
                 tr_matrix = keys[start:end]
                 frame_num = keys[end]
-                cmds.xform(self.current_camera, matrix = tr_matrix)
+                cmds.xform(self.current_camera, matrix = self._vc_to_maya_up_axis(tr_matrix))
                 cmds.setKeyframe(self.current_camera, attribute=['t','r'], t=frame_num)
             anim_curves = cmds.listConnections((self.current_camera+'.rotateX', self.current_camera+'.rotateY', self.current_camera+'.rotateZ'), type='animCurve', skipConversionNodes=True)
             cmds.filterCurve(anim_curves)
@@ -875,7 +893,7 @@ class VirtuCameraMaya(object):
     def _set_current_camera_all_at_time(self, tr_matrix, flen, time):
         if cmds.objExists(self.current_camera):
             cmds.setAttr(self.current_camera+'.focalLength', flen)
-            cmds.xform(self.current_camera, matrix = tr_matrix)
+            cmds.xform(self.current_camera, matrix = self._vc_to_maya_up_axis(tr_matrix))
             self._maya_set_current_time(time)
             return True
         return False
@@ -893,7 +911,7 @@ class VirtuCameraMaya(object):
     def _set_current_camera_all(self, tr_matrix, flen):
         if cmds.objExists(self.current_camera):
             cmds.setAttr(self.current_camera+'.focalLength', flen)
-            cmds.xform(self.current_camera, matrix = tr_matrix)
+            cmds.xform(self.current_camera, matrix = self._vc_to_maya_up_axis(tr_matrix))
             return True
         return False
 
