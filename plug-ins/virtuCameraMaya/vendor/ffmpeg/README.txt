@@ -1,1 +1,0 @@
-VirtuCameraMaya makes use of FFmpeg command line tool for the viewport streaming option. FFmpeg is licensed under GPL and a copy of this license is included with this software. If you want to compile FFmpeg by yourself, you can download the source code and build configuration from https://virtucamera.com

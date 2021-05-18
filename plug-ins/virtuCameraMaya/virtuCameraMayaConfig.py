@@ -1,24 +1,26 @@
-#The MIT License (MIT)
-#
-#Copyright (c) 2019-2020 Pablo J. Garcia Gonzalez
-#
-#Permission is hereby granted, free of charge, to any person obtaining a copy
-#of this software and associated documentation files (the "Software"), to deal
-#in the Software without restriction, including without limitation the rights
-#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#copies of the Software, and to permit persons to whom the Software is
-#furnished to do so, subject to the following conditions:
-#
-#The above copyright notice and this permission notice shall be included in all
-#copies or substantial portions of the Software.
-#
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#SOFTWARE.
+# VirtuCameraMaya
+# Copyright (c) 2021 Pablo Javier Garcia Gonzalez.
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+# OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THE SOFTWARE,
+# EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import maya.cmds as cmds
 import xml.etree.ElementTree as et
@@ -31,9 +33,9 @@ class VirtuCameraMayaConfig(object):
     _SAMPLE_MEL = '// SAMPLE CODE\n// Duplicates the camera selected in VirtuCamera\n// Tip: %SELCAM% will be replaced by the path to the camera transform\n\n$cam_transform = %SELCAM%;\nduplicate $cam_transform;\n'
     LANG_PY = 1
     LANG_MEL = 2
-    CAPMODE_BUFFER = 'Viewport Buffer'
+    CAPMODE_BUFFER_POINTER = 'Viewport Buffer'
     CAPMODE_SCREENSHOT = 'Screenshot'
-    DEFAULT_CAPMODE = CAPMODE_BUFFER    # Default capture mode
+    DEFAULT_CAPMODE = CAPMODE_BUFFER_POINTER    # Default capture mode
     DEFAULT_SRVPORT = 23354              # TCP port used by default
     
 
@@ -132,7 +134,7 @@ class VirtuCameraMayaConfig(object):
         general.set('capmode', self._get_cap_mode_ui())
         tree = et.ElementTree(config)
         try:
-            with open(self.config_file_path,'w') as savefile:
+            with open(self.config_file_path,'wb') as savefile:
                 tree.write(savefile)
             return True
         except:
@@ -386,9 +388,9 @@ class VirtuCameraMayaConfig(object):
         cmds.setParent('..')
         cmds.separator(height=5, style='none')
         self._cap_mode_ui = cmds.optionMenuGrp(label='Capture Mode', changeCommand=self._cap_mode_changed_ui)
-        cmds.menuItem(label=self.CAPMODE_BUFFER)
+        cmds.menuItem(label=self.CAPMODE_BUFFER_POINTER)
         cmds.menuItem(label=self.CAPMODE_SCREENSHOT)
-        cmds.text(label="                                          'Viewport Buffer' is faster. 'Screenshot' is experimental, only use it\n                                           if you are having problems visualizing the viewport on the App.", align='left')
+        cmds.text(label="                                          'Viewport Buffer' is faster. Use 'Screenshot' if you are having\n                                           problems visualizing the viewport on the App.", align='left')
         cmds.separator(height=25, style='none')
         cmds.separator()
         cmds.separator(height=15, style='none')
