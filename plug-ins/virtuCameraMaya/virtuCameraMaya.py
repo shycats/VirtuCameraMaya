@@ -45,7 +45,7 @@ from .virtucamera import VCBase, VCServer
 
 class VirtuCameraMaya(VCBase):
     # Constants
-    PLUGIN_VERSION = (2,0,0)
+    PLUGIN_VERSION = (2,0,2)
     WINDOW_WIDTH = 160
     WINDOW_HEIGHT = 180
     CONFIG_FILE = 'configuration.xml' # Configuration file name
